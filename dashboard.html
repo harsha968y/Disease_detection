@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Parkinson's Disease Detection{% endblock %}
+
+{% block extra_css %}
+<style>
+    .voice-recorder {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        padding: 30px;
+        color: white;
+    }
+    .record-btn {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        border: none;
+        background: white;
+        color: #667eea;
+        font-size: 2rem;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+    .record-btn:hover {
+        transform: scale(1.1);
+    }
+    .record-btn.recording {
+        background: #dc3545;
+        color: white;
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+    }
+    .result-card {
+        margin-top: 20px;
+        opacity: 0;
+        transition: opacity 0.5s;
+    }
+    .result-card.show {
+        opacity: 1;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 10px 0;
+    }
+    .model-result {
+        background: #f8f9fa;
+        border-left: 4px solid #667eea;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card mb-4">
+            <div class="card-body p-4">
+                <h2 class="mb-4">
+                    <i class="fas fa-microphone text-primary"></i> Voice Analysis Dashboard
+                </h2>
+                <p class="lead">Record or upload a voice sample to analyze for Parkinson's disease detection.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body p-4">
+                <h4 class="mb-4"><i class="fas fa-microphone-alt"></i> Voice Input</h4>
+                
+                <div class="voice-recorder text-center mb-4">
+                    <button id="recordBtn" class="record-btn" onclick="toggleRecording()">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <p class="mt-3 mb-0" id="statusText">Click to Record</p>
+                    <p class="small" id="timerText">00:00</p>
+                </div>
+
+                <div class="mb-3">
+                    <label for="audioFile" class="form-label">
+                        <i class="fas fa-upload"></i> Or Upload Audio File
+                    </label>
+                    <input type="file" class="form-control" id="audioFile" accept="audio/*">
+                </div>
+
+                <button class="btn btn-primary w-100" onclick="analyzeVoice()" id="analyzeBtn" disabled>
+                    <i class="fas fa-search"></i> Analyze Voice
+                </button>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-body p-4">
+                <h4 class="mb-3"><i class="fas fa-chart-line"></i> Model Performance</h4>
+                <button class="btn btn-outline-primary mb-3" onclick="loadMetrics()">
+                    <i class="fas fa-sync"></i> Load Metrics
+                </button>
+                <div id="metricsContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body p-4">
+                <h4 class="mb-4"><i class="fas fa-clipboard-list"></i> Analysis Results</h4>
+                <div id="resultsContainer">
+                    <p class="text-muted text-center">No analysis performed yet. Record or upload a voice sample to begin.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body p-4">
+                <h4 class="mb-3"><i class="fas fa-cog"></i> Train Models</h4>
+                <p>Train all machine learning models on the dataset. This may take a few minutes.</p>
+                <button class="btn btn-success" onclick="trainModels()" id="trainBtn">
+                    <i class="fas fa-brain"></i> Train All Models
+                </button>
+                <div id="trainingStatus" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let mediaRecorder;
+let audioChunks = [];
+let isRecording = false;
+let recordingTimer = null;
+let seconds = 0;
+
+function toggleRecording() {
+    if (!isRecording) {
+        startRecording();
+    } else {
+        stopRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            
+            // Create file input for upload
+            const file = new File([audioBlob], 'recording.wav', { type: 'audio/wav' });
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(file);
+            document.getElementById('audioFile').files = dataTransfer.files;
+            
+            document.getElementById('analyzeBtn').disabled = false;
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById('recordBtn').classList.add('recording');
+        document.getElementById('recordBtn').innerHTML = '<i class="fas fa-stop"></i>';
+        document.getElementById('statusText').textContent = 'Recording...';
+        
+        seconds = 0;
+        recordingTimer = setInterval(() => {
+            seconds++;
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            document.getElementById('timerText').textContent = 
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }, 1000);
+    } catch (error) {
+        console.error('Error accessing microphone:', error);
+        alert('Error accessing microphone. Please check permissions.');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        isRecording = false;
+        document.getElementById('recordBtn').classList.remove('recording');
+        document.getElementById('recordBtn').innerHTML = '<i class="fas fa-microphone"></i>';
+        document.getElementById('statusText').textContent = 'Recording Complete';
+        
+        if (recordingTimer) {
+            clearInterval(recordingTimer);
+            recordingTimer = null;
+        }
+    }
+}
+
+document.getElementById('audioFile').addEventListener('change', function(e) {
+    if (e.target.files.length > 0) {
+        document.getElementById('analyzeBtn').disabled = false;
+    }
+});
+
+async function analyzeVoice() {
+    const fileInput = document.getElementById('audioFile');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Please record or upload an audio file first.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('audio', file);
+
+    document.getElementById('analyzeBtn').disabled = true;
+    document.getElementById('analyzeBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+
+    try {
+        const response = await fetch('/predict', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            displayResults(data.results);
+        } else {
+            alert('Error: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error analyzing voice. Please try again.');
+    } finally {
+        document.getElementById('analyzeBtn').disabled = false;
+        document.getElementById('analyzeBtn').innerHTML = '<i class="fas fa-search"></i> Analyze Voice';
+    }
+}
+
+function displayResults(results) {
+    const container = document.getElementById('resultsContainer');
+    let html = '<h5 class="mb-3">Prediction Results:</h5>';
+
+    for (const [modelName, result] of Object.entries(results)) {
+        const statusClass = result.prediction === 'Parkinson\'s Disease' ? 'danger' : 'success';
+        html += `
+            <div class="model-result">
+                <h6><strong>${modelName}</strong></h6>
+                <p class="mb-2">
+                    <span class="badge bg-${statusClass}">${result.prediction}</span>
+                </p>
+                <p class="mb-1">
+                    <strong>Confidence:</strong> ${result.confidence.toFixed(2)}%
+                </p>
+                <p class="mb-0">
+                    <strong>Probability:</strong> ${(result.probability * 100).toFixed(2)}%
+                </p>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+async function loadMetrics() {
+    try {
+        const response = await fetch('/metrics');
+        const data = await response.json();
+
+        if (data.error) {
+            document.getElementById('metricsContainer').innerHTML = 
+                '<p class="text-muted">' + data.error + '</p>';
+            return;
+        }
+
+        let html = '';
+        for (const [modelName, metrics] of Object.entries(data)) {
+            html += `
+                <div class="metric-card">
+                    <h5>${modelName}</h5>
+                    <p class="mb-1"><strong>Accuracy:</strong> ${(metrics.accuracy * 100).toFixed(2)}%</p>
+                    <p class="mb-1"><strong>Sensitivity:</strong> ${(metrics.sensitivity * 100).toFixed(2)}%</p>
+                    <p class="mb-0"><strong>Specificity:</strong> ${(metrics.specificity * 100).toFixed(2)}%</p>
+                </div>
+            `;
+        }
+
+        document.getElementById('metricsContainer').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading metrics:', error);
+        document.getElementById('metricsContainer').innerHTML = 
+            '<p class="text-danger">Error loading metrics</p>';
+    }
+}
+
+async function trainModels() {
+    const btn = document.getElementById('trainBtn');
+    const statusDiv = document.getElementById('trainingStatus');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Training...';
+    statusDiv.innerHTML = '<p class="text-info">Training models... This may take a few minutes.</p>';
+
+    try {
+        const response = await fetch('/train', {
+            method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            statusDiv.innerHTML = '<p class="text-success">Models trained successfully!</p>';
+            loadMetrics();
+        } else {
+            statusDiv.innerHTML = '<p class="text-danger">Error: ' + data.error + '</p>';
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        statusDiv.innerHTML = '<p class="text-danger">Error training models</p>';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-brain"></i> Train All Models';
+    }
+}
+
+// Load metrics on page load
+window.addEventListener('load', () => {
+    loadMetrics();
+});
+</script>
+{% endblock %}
+
